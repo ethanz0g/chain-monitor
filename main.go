@@ -7,15 +7,26 @@ import (
 	"time"
 	"log"
 	"math/big"
+	"strconv"
 
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/rpc"
 )
 
+type TxPoolStatus struct {
+	Pending string `json:"pending"` // Number of pending transactions
+	Queued  string `json:"queued"`  // Number of queued transactions
+}
 
 func main() {
 	rpcUrl, _ := getParameters()
 
 	client, err := ethclient.Dial(rpcUrl)
+	if err != nil {
+		log.Fatalf("Failed to connect to the Ethereum client: %v", err)
+	}
+
+	rpcClient, err := rpc.Dial(rpcUrl)
 	if err != nil {
 		log.Fatalf("Failed to connect to the Ethereum client: %v", err)
 	}
@@ -28,6 +39,7 @@ func main() {
 	}
 
 	currentBlockHeight := currentBlock.Number()
+	tryGetPool := true
 
 	for ; ;  {
 		currentBlock, err = client.BlockByNumber(context.Background(), currentBlockHeight)
@@ -37,11 +49,25 @@ func main() {
 		}
 
 		txCount := len(currentBlock.Transactions())
-		pendingTxCount, err := client.PendingTransactionCount(context.Background())
-    		if err != nil {
-       			log.Fatalf("Failed to get pending transactions: %v", err)
-    		}
-		fmt.Printf("Height: %v\tTxCount: %v\tMemPoolTx: %v\tBlockTime: %v\tGasLimit: %v\tGasUsed: %v\n",
+
+		var pendingTxCount uint64
+
+		if tryGetPool {
+			var status TxPoolStatus
+			err = rpcClient.CallContext(context.Background(), &status, "txpool_status")
+			if err != nil {
+				tryGetPool = false
+			}
+
+			if tryGetPool {
+				pendingTxCount, err = strconv.ParseUint(status.Pending[2:], 16, 64)
+				if err != nil {
+					log.Fatalf("Failed to parse hex string: %v", err)
+				}
+			}
+		}
+
+		fmt.Printf("Height: %v\tTxCount: %v\tPendingTx: %v\tBlockTime: %v\tGasLimit: %v\tGasUsed: %v\n",
 			currentBlock.Number(),
 			txCount,
 			pendingTxCount,
